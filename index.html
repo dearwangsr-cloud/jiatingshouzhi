@@ -1,0 +1,799 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#10b981">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="家庭记账">
+    <link rel="apple-touch-icon" href="./icon.svg">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家庭收支记录系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        /* 隐藏滚动条但保持功能 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-20">
+
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs">
+        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+            <h1 class="text-xl font-bold text-emerald-600 flex items-center gap-2">
+                💰 家庭收支记录
+            </h1>
+            <div class="flex gap-2">
+                <button onclick="exportData()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg transition">导出数据</button>
+                <label class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg transition cursor-pointer">
+                    导入数据 <input type="file" id="importFile" onchange="importData(event)" class="hidden">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 pt-6">
+        
+        <div id="tab-dashboard" class="tab-content active space-y-6">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <p class="text-xs text-slate-500 font-medium">今年总收入</p>
+                    <p id="card-total-income" class="text-xl font-bold text-emerald-600 mt-1">￥0.00</p>
+                    <p id="card-total-income-sub" class="text-[10px] text-slate-400 mt-0.5">实际: ￥0 | 常规年化: ￥0</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <p class="text-xs text-slate-500 font-medium">今年大宗支出</p>
+                    <p id="card-major-expense" class="text-xl font-bold text-rose-600 mt-1">￥0.00</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">已发生大额项目</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <p class="text-xs text-slate-500 font-medium">预估年常开销 (月度×12)</p>
+                    <p id="card-est-expense" class="text-xl font-bold text-amber-600 mt-1">￥0.00</p>
+                    <p id="card-est-expense-sub" class="text-[10px] text-slate-400 mt-0.5">月预算: ￥0 /月</p>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <p class="text-xs text-slate-500 font-medium">预计年度结余</p>
+                    <p id="card-net-savings" class="text-xl font-bold text-blue-600 mt-1">￥0.00</p>
+                    <p id="card-net-savings-sub" class="text-[10px] text-slate-400 mt-0.5">总收入 - 总支出预算</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <h3 class="text-sm font-bold text-slate-700 mb-4">年度总收入来源构成 (含常规年化)</h3>
+                    <div class="h-64 flex items-center justify-center">
+                        <canvas id="incomeChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <h3 class="text-sm font-bold text-slate-700 mb-4">支出结构预估 (大宗 + 年化常规)</h3>
+                    <div class="h-64 flex items-center justify-center">
+                        <canvas id="expenseChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-income" class="tab-content space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs h-fit">
+                    <h2 class="text-base font-bold mb-4 text-emerald-600">💰 记一笔临时收入</h2>
+                    <form id="income-form" onsubmit="handleSubmit(event, 'income')" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">家庭成员</label>
+                            <input type="text" id="inc-member" placeholder="如：爸爸、妈妈" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">收入种类</label>
+                            <input type="text" id="inc-category" placeholder="如：年终奖、理财、副业" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">金额 (元)</label>
+                            <input type="number" step="0.01" id="inc-amount" placeholder="0.00" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">入账时间</label>
+                            <input type="date" id="inc-date" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-xl text-sm transition shadow-sm">保存临时收入</button>
+                    </form>
+                </div>
+
+                <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/50"><h3 class="font-bold text-slate-700">一次性收入明细</h3></div>
+                    <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-500 text-xs sticky top-0">
+                                <tr>
+                                    <th class="p-3 font-semibold">时间</th>
+                                    <th class="p-3 font-semibold">成员</th>
+                                    <th class="p-3 font-semibold">种类</th>
+                                    <th class="p-3 font-semibold text-right">金额</th>
+                                    <th class="p-3 font-semibold text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="income-list" class="divide-y divide-slate-100 text-slate-600"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs h-fit">
+                    <h2 class="text-base font-bold mb-4 text-emerald-700">📆 锁定常规月收入</h2>
+                    <form id="monthly-income-form" onsubmit="handleSubmit(event, 'monthlyIncome')" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">家庭成员</label>
+                            <input type="text" id="mon-inc-member" placeholder="如：爸爸、妈妈" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">收入性质</label>
+                            <input type="text" id="mon-inc-category" placeholder="如：基本工资、月固定津贴" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">平均月薪/月入 (元)</label>
+                            <input type="number" step="0.01" id="mon-inc-amount" placeholder="0.00" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-emerald-500">
+                        </div>
+                        <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 rounded-xl text-sm transition shadow-sm">锁定常规月薪</button>
+                    </form>
+                </div>
+
+                <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+                        <h3 class="font-bold text-slate-700">常规月薪模板 (常规月总计: <span id="monthly-inc-total" class="text-emerald-700 font-bold">￥0</span>)</h3>
+                    </div>
+                    <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-500 text-xs sticky top-0">
+                                <tr>
+                                    <th class="p-3 font-semibold">家庭成员</th>
+                                    <th class="p-3 font-semibold">收入性质</th>
+                                    <th class="p-3 font-semibold text-right">每月固定</th>
+                                    <th class="p-3 font-semibold text-right">年化折算 (x12)</th>
+                                    <th class="p-3 font-semibold text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monthly-income-list" class="divide-y divide-slate-100 text-slate-600"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-expense" class="tab-content space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs h-fit">
+                    <h2 class="text-base font-bold mb-4 text-rose-600">📊 记录大宗支出</h2>
+                    <form id="major-form" onsubmit="handleSubmit(event, 'majorExpense')" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">大宗项目/种类</label>
+                            <input type="text" id="maj-category" placeholder="如：购车、装修、大额保险" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-rose-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">金额 (元)</label>
+                            <input type="number" step="0.01" id="maj-amount" placeholder="0.00" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-rose-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">发生时间</label>
+                            <input type="date" id="maj-date" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-rose-500">
+                        </div>
+                        <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-medium py-2 rounded-xl text-sm transition shadow-sm">添加大宗记录</button>
+                    </form>
+                </div>
+
+                <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/50"><h3 class="font-bold text-slate-700">大宗支出清单</h3></div>
+                    <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-500 text-xs sticky top-0">
+                                <tr>
+                                    <th class="p-3 font-semibold">时间</th>
+                                    <th class="p-3 font-semibold">大宗种类</th>
+                                    <th class="p-3 font-semibold text-right">金额</th>
+                                    <th class="p-3 font-semibold text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="major-list" class="divide-y divide-slate-100 text-slate-600"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs h-fit">
+                    <h2 class="text-base font-bold mb-4 text-amber-600">📝 预估月度常规支出</h2>
+                    <form id="estimate-form" onsubmit="handleSubmit(event, 'monthlyEstimate')" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">常规开销种类</label>
+                            <input type="text" id="est-category" placeholder="如：餐饮、房贷、娱乐、教育" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">每月预估金额 (元)</label>
+                            <input type="number" step="0.01" id="est-amount" placeholder="0.00" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-amber-500">
+                        </div>
+                        <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 rounded-xl text-sm transition shadow-sm">锁定月度预算</button>
+                    </form>
+                </div>
+
+                <div class="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+                        <h3 class="font-bold text-slate-700">月度常规预算模板 (预估总计/月: <span id="monthly-est-total" class="text-amber-600 font-bold">￥0</span>)</h3>
+                    </div>
+                    <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-500 text-xs sticky top-0">
+                                <tr>
+                                    <th class="p-3 font-semibold">预算开销种类</th>
+                                    <th class="p-3 font-semibold text-right">每月预估金额</th>
+                                    <th class="p-3 font-semibold text-right">年化换算 (x12)</th>
+                                    <th class="p-3 font-semibold text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="estimate-list" class="divide-y divide-slate-100 text-slate-600"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <div id="edit-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100] hidden">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">📝 编辑财务项</h3>
+            <form id="edit-form" onsubmit="saveEdit(event)" class="space-y-4">
+                <input type="hidden" id="edit-id">
+                <input type="hidden" id="edit-type">
+                
+                <div id="edit-fields-container" class="space-y-3">
+                    </div>
+
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="closeEditModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium py-2 rounded-xl text-xs transition">
+                        取消
+                    </button>
+                    <button type="button" onclick="deleteFromModal()" class="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-medium py-2 rounded-xl text-xs transition">
+                        删除此条
+                    </button>
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-xl text-xs transition">
+                        保存修改
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg px-6 h-16 flex items-center justify-around z-50">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="flex flex-col items-center gap-1 text-emerald-600 font-medium text-xs">
+            <span class="text-xl">📊</span>
+            <span>总览看板</span>
+        </button>
+        <button onclick="switchTab('income')" id="nav-income" class="flex flex-col items-center gap-1 text-slate-400 font-medium text-xs">
+            <span class="text-xl">💰</span>
+            <span>收入记录</span>
+        </button>
+        <button onclick="switchTab('expense')" id="nav-expense" class="flex flex-col items-center gap-1 text-slate-400 font-medium text-xs">
+            <span class="text-xl">📉</span>
+            <span>支出管理</span>
+        </button>
+    </nav>
+
+    <script>
+        // 初始化核心数据存储结构（无损迁移与扩展）
+        let db = {
+            income: [],          // 一次性/临时入账
+            monthlyIncome: [],   // 常规月薪/月度常规收入
+            majorExpense: [],    // 大宗支出
+            monthlyEstimate: []  // 常规月度预算
+        };
+
+        // 缓存正在编辑的临时变量
+        let activeEditItem = null;
+        let activeEditType = null;
+
+        // 图表实例引用
+        let incChartInstance = null;
+        let expChartInstance = null;
+
+        // 初始化加载
+        window.addEventListener('DOMContentLoaded', () => {
+            loadFromLocalStorage();
+            // 默认设置日期输入框为当天
+            const today = new Date().toISOString().split('T')[0];
+            if(document.getElementById('inc-date')) document.getElementById('inc-date').value = today;
+            if(document.getElementById('maj-date')) document.getElementById('maj-date').value = today;
+        });
+
+        // 标签页切换
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            
+            // 更新底部导航高亮
+            const tabs = ['dashboard', 'income', 'expense'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`nav-${t}`);
+                if(t === tabId) {
+                    btn.classList.remove('text-slate-400');
+                    btn.classList.add('text-emerald-600');
+                } else {
+                    btn.classList.remove('text-emerald-600');
+                    btn.classList.add('text-slate-400');
+                }
+            });
+
+            if(tabId === 'dashboard') {
+                calculateAndRenderDashboard();
+            }
+        }
+
+        // 统筹表单提交
+        function handleSubmit(event, type) {
+            event.preventDefault();
+            const id = Date.now().toString();
+
+            if (type === 'income') {
+                db.income.push({
+                    id,
+                    member: document.getElementById('inc-member').value.trim(),
+                    category: document.getElementById('inc-category').value.trim(),
+                    amount: parseFloat(document.getElementById('inc-amount').value),
+                    date: document.getElementById('inc-date').value
+                });
+                document.getElementById('income-form').reset();
+                document.getElementById('inc-date').value = new Date().toISOString().split('T')[0];
+                renderIncomeList();
+            } else if (type === 'monthlyIncome') {
+                db.monthlyIncome.push({
+                    id,
+                    member: document.getElementById('mon-inc-member').value.trim(),
+                    category: document.getElementById('mon-inc-category').value.trim(),
+                    amount: parseFloat(document.getElementById('mon-inc-amount').value)
+                });
+                document.getElementById('monthly-income-form').reset();
+                renderMonthlyIncomeList();
+            } else if (type === 'majorExpense') {
+                db.majorExpense.push({
+                    id,
+                    category: document.getElementById('maj-category').value.trim(),
+                    amount: parseFloat(document.getElementById('maj-amount').value),
+                    date: document.getElementById('maj-date').value
+                });
+                document.getElementById('major-form').reset();
+                document.getElementById('maj-date').value = new Date().toISOString().split('T')[0];
+                renderMajorList();
+            } else if (type === 'monthlyEstimate') {
+                db.monthlyEstimate.push({
+                    id,
+                    category: document.getElementById('est-category').value.trim(),
+                    amount: parseFloat(document.getElementById('est-amount').value)
+                });
+                document.getElementById('estimate-form').reset();
+                renderEstimateList();
+            }
+
+            saveToLocalStorage();
+        }
+
+        // 弹窗编辑控制中心
+        function openEditModal(id, type) {
+            const list = db[type];
+            const item = list.find(i => i.id === id);
+            if (!item) return;
+
+            activeEditItem = item;
+            activeEditType = type;
+
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-type').value = type;
+
+            const container = document.getElementById('edit-fields-container');
+            container.innerHTML = ''; // 清空
+
+            let fieldsHTML = '';
+            
+            if (type === 'income') {
+                fieldsHTML = `
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">家庭成员</label>
+                        <input type="text" id="edit-member" value="${item.member}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">收入种类</label>
+                        <input type="text" id="edit-category" value="${item.category}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">金额 (元)</label>
+                        <input type="number" step="0.01" id="edit-amount" value="${item.amount}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">时间</label>
+                        <input type="date" id="edit-date" value="${item.date}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                `;
+            } else if (type === 'monthlyIncome') {
+                fieldsHTML = `
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">家庭成员</label>
+                        <input type="text" id="edit-member" value="${item.member}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">收入性质</label>
+                        <input type="text" id="edit-category" value="${item.category}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">常规月薪 (元)</label>
+                        <input type="number" step="0.01" id="edit-amount" value="${item.amount}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                `;
+            } else if (type === 'majorExpense') {
+                fieldsHTML = `
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">大宗种类</label>
+                        <input type="text" id="edit-category" value="${item.category}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">金额 (元)</label>
+                        <input type="number" step="0.01" id="edit-amount" value="${item.amount}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">发生时间</label>
+                        <input type="date" id="edit-date" value="${item.date}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                `;
+            } else if (type === 'monthlyEstimate') {
+                fieldsHTML = `
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">常规开销种类</label>
+                        <input type="text" id="edit-category" value="${item.category}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">预估月金额 (元)</label>
+                        <input type="number" step="0.01" id="edit-amount" value="${item.amount}" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-blue-500">
+                    </div>
+                `;
+            }
+
+            container.innerHTML = fieldsHTML;
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+            activeEditItem = null;
+            activeEditType = null;
+        }
+
+        // 保存编辑后重载
+        function saveEdit(event) {
+            event.preventDefault();
+            if (!activeEditItem || !activeEditType) return;
+
+            const type = activeEditType;
+            const item = activeEditItem;
+
+            if (type === 'income') {
+                item.member = document.getElementById('edit-member').value.trim();
+                item.category = document.getElementById('edit-category').value.trim();
+                item.amount = parseFloat(document.getElementById('edit-amount').value);
+                item.date = document.getElementById('edit-date').value;
+                renderIncomeList();
+            } else if (type === 'monthlyIncome') {
+                item.member = document.getElementById('edit-member').value.trim();
+                item.category = document.getElementById('edit-category').value.trim();
+                item.amount = parseFloat(document.getElementById('edit-amount').value);
+                renderMonthlyIncomeList();
+            } else if (type === 'majorExpense') {
+                item.category = document.getElementById('edit-category').value.trim();
+                item.amount = parseFloat(document.getElementById('edit-amount').value);
+                item.date = document.getElementById('edit-date').value;
+                renderMajorList();
+            } else if (type === 'monthlyEstimate') {
+                item.category = document.getElementById('edit-category').value.trim();
+                item.amount = parseFloat(document.getElementById('edit-amount').value);
+                renderEstimateList();
+            }
+
+            saveToLocalStorage();
+            closeEditModal();
+            if(document.getElementById('tab-dashboard').classList.contains('active')) {
+                calculateAndRenderDashboard();
+            }
+        }
+
+        // 弹窗内的统一删除动作
+        function deleteFromModal() {
+            if (!activeEditItem || !activeEditType) return;
+            if (!confirm('确定要彻底删除这条记录吗？')) return;
+
+            const type = activeEditType;
+            const id = activeEditItem.id;
+
+            db[type] = db[type].filter(item => item.id !== id);
+
+            if (type === 'income') renderIncomeList();
+            else if (type === 'monthlyIncome') renderMonthlyIncomeList();
+            else if (type === 'majorExpense') renderMajorList();
+            else if (type === 'monthlyEstimate') renderEstimateList();
+
+            saveToLocalStorage();
+            closeEditModal();
+            if(document.getElementById('tab-dashboard').classList.contains('active')) {
+                calculateAndRenderDashboard();
+            }
+        }
+
+        // 列表数据渲染
+        function renderIncomeList() {
+            const tbody = document.getElementById('income-list');
+            const sorted = [...db.income].sort((a,b) => new Date(b.date) - new Date(a.date));
+            tbody.innerHTML = sorted.map(item => `
+                <tr class="hover:bg-slate-50 transition">
+                    <td class="p-3">${item.date}</td>
+                    <td class="p-3 font-medium text-slate-800">${item.member}</td>
+                    <td class="p-3"><span class="bg-teal-50 text-teal-700 px-2 py-1 rounded-md text-xs font-medium">${item.category}</span></td>
+                    <td class="p-3 text-right font-semibold text-emerald-600">￥${item.amount.toFixed(2)}</td>
+                    <td class="p-3 text-center">
+                        <button onclick="openEditModal('${item.id}', 'income')" class="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1">编辑</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderMonthlyIncomeList() {
+            const tbody = document.getElementById('monthly-income-list');
+            let totalMonthly = 0;
+            tbody.innerHTML = db.monthlyIncome.map(item => {
+                totalMonthly += item.amount;
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-3 font-medium text-slate-800">${item.member}</td>
+                        <td class="p-3"><span class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md text-xs font-medium">${item.category}</span></td>
+                        <td class="p-3 text-right font-semibold text-emerald-600">￥${item.amount.toFixed(2)}</td>
+                        <td class="p-3 text-right text-slate-400">￥${(item.amount * 12).toFixed(2)}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="openEditModal('${item.id}', 'monthlyIncome')" class="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1">编辑</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            document.getElementById('monthly-inc-total').innerText = `￥${totalMonthly.toFixed(2)}`;
+        }
+
+        function renderMajorList() {
+            const tbody = document.getElementById('major-list');
+            const sorted = [...db.majorExpense].sort((a,b) => new Date(b.date) - new Date(a.date));
+            tbody.innerHTML = sorted.map(item => `
+                <tr class="hover:bg-slate-50 transition">
+                    <td class="p-3">${item.date}</td>
+                    <td class="p-3 font-medium text-slate-800">${item.category}</td>
+                    <td class="p-3 text-right font-semibold text-rose-600">￥${item.amount.toFixed(2)}</td>
+                    <td class="p-3 text-center">
+                        <button onclick="openEditModal('${item.id}', 'majorExpense')" class="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1">编辑</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderEstimateList() {
+            const tbody = document.getElementById('estimate-list');
+            let totalMonthly = 0;
+            tbody.innerHTML = db.monthlyEstimate.map(item => {
+                totalMonthly += item.amount;
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-3 font-medium text-slate-800">${item.category}</td>
+                        <td class="p-3 text-right font-semibold text-amber-600">￥${item.amount.toFixed(2)}</td>
+                        <td class="p-3 text-right text-slate-400">￥${(item.amount * 12).toFixed(2)}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="openEditModal('${item.id}', 'monthlyEstimate')" class="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1">编辑</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            document.getElementById('monthly-est-total').innerText = `￥${totalMonthly.toFixed(2)}`;
+        }
+
+        // 看板运算算法中心 (优化：按收入种类分类)
+        function calculateAndRenderDashboard() {
+            // 1. 核心数据解析
+            const totalOneTimeIncome = db.income.reduce((sum, item) => sum + item.amount, 0);
+            const totalMonthlyIncome = db.monthlyIncome.reduce((sum, item) => sum + item.amount, 0);
+            const annualizedMonthlyIncome = totalMonthlyIncome * 12;
+            const totalIncome = totalOneTimeIncome + annualizedMonthlyIncome;
+
+            const totalMajor = db.majorExpense.reduce((sum, item) => sum + item.amount, 0);
+            const monthlyEstTotal = db.monthlyEstimate.reduce((sum, item) => sum + item.amount, 0);
+            const annualizedEst = monthlyEstTotal * 12;
+            
+            const netSavings = totalIncome - totalMajor - annualizedEst;
+
+            // 2. 更新数据面板
+            document.getElementById('card-total-income').innerText = `￥${totalIncome.toFixed(2)}`;
+            document.getElementById('card-total-income-sub').innerText = `实际: ￥${totalOneTimeIncome.toFixed(0)} | 常规年化: ￥${annualizedMonthlyIncome.toFixed(0)}`;
+
+            document.getElementById('card-major-expense').innerText = `￥${totalMajor.toFixed(2)}`;
+
+            document.getElementById('card-est-expense').innerText = `￥${annualizedEst.toFixed(2)}`;
+            document.getElementById('card-est-expense-sub').innerText = `月预算: ￥${monthlyEstTotal.toFixed(0)}/月`;
+
+            document.getElementById('card-net-savings').innerText = `￥${netSavings.toFixed(2)}`;
+            document.getElementById('card-net-savings-sub').innerText = `净余率: ${totalIncome > 0 ? ((netSavings / totalIncome) * 100).toFixed(1) : 0}%`;
+            
+            const savingsCard = document.getElementById('card-net-savings');
+            if(netSavings < 0) {
+                savingsCard.className = "text-xl font-bold text-rose-600 mt-1";
+            } else {
+                savingsCard.className = "text-xl font-bold text-blue-600 mt-1";
+            }
+
+            // 3. 优化算法：按收入种类/性质对收入来源进行合并分组
+            const categoryData = {};
+            // 累计一次性收入分类
+            db.income.forEach(item => {
+                const cat = item.category || '未分类收入';
+                categoryData[cat] = (categoryData[cat] || 0) + item.amount;
+            });
+            // 累计常规年化月收入分类
+            db.monthlyIncome.forEach(item => {
+                const cat = item.category || '未分类收入';
+                categoryData[cat] = (categoryData[cat] || 0) + (item.amount * 12);
+            });
+
+            // 4. 统计大宗+常规预算支出分类
+            const expenseLabels = [];
+            const expenseValues = [];
+            db.majorExpense.forEach(item => {
+                expenseLabels.push(`[大宗] ${item.category}`);
+                expenseValues.push(item.amount);
+            });
+            db.monthlyEstimate.forEach(item => {
+                expenseLabels.push(`[常开销] ${item.category}`);
+                expenseValues.push(item.amount * 12);
+            });
+
+            // 5. 渲染/更新图表
+            renderIncomeChart(Object.keys(categoryData), Object.values(categoryData));
+            renderExpenseChart(expenseLabels, expenseValues);
+        }
+
+        function renderIncomeChart(labels, data) {
+            if (incChartInstance) incChartInstance.destroy();
+            const ctx = document.getElementById('incomeChart').getContext('2d');
+            if(labels.length === 0) {
+                labels = ['暂无数据']; data = [1];
+            }
+            incChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        function renderExpenseChart(labels, data) {
+            if (expChartInstance) expChartInstance.destroy();
+            const ctx = document.getElementById('expenseChart').getContext('2d');
+            if(labels.length === 0) {
+                labels = ['暂无数据']; data = [1];
+            }
+            expChartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#f43f5e', '#fb7185', '#f59e0b', '#fbbf24', '#a78bfa', '#34d399']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        // LocalStorage 数据持久化
+        function saveToLocalStorage() {
+            localStorage.setItem('family_finance_db', JSON.stringify(db));
+        }
+
+        function loadFromLocalStorage() {
+            const data = localStorage.getItem('family_finance_db');
+            if (data) {
+                try {
+                    db = JSON.parse(data);
+                    // 安全补齐老旧版本结构，无损兼容
+                    if(!db.income) db.income = [];
+                    if(!db.monthlyIncome) db.monthlyIncome = [];
+                    if(!db.majorExpense) db.majorExpense = [];
+                    if(!db.monthlyEstimate) db.monthlyEstimate = [];
+                    
+                    renderIncomeList();
+                    renderMonthlyIncomeList();
+                    renderMajorList();
+                    renderEstimateList();
+                } catch (e) {
+                    console.error("解析本地存储数据失败，已重置", e);
+                }
+            }
+            calculateAndRenderDashboard();
+        }
+
+        // 备份数据文件
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `家庭收支数据备份_${new Date().toISOString().split('T')[0]}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        // 恢复数据文件
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedDb = JSON.parse(e.target.result);
+                    if (importedDb.income || importedDb.monthlyIncome || importedDb.majorExpense || importedDb.monthlyEstimate) {
+                        db = {
+                            income: importedDb.income || [],
+                            monthlyIncome: importedDb.monthlyIncome || [],
+                            majorExpense: importedDb.majorExpense || [],
+                            monthlyEstimate: importedDb.monthlyEstimate || []
+                        };
+                        saveToLocalStorage();
+                        renderIncomeList();
+                        renderMonthlyIncomeList();
+                        renderMajorList();
+                        renderEstimateList();
+                        calculateAndRenderDashboard();
+                        alert('🎉 数据成功恢复！');
+                    } else {
+                        alert('无法识别该文件格式，请确保使用的是正确的备份文件。');
+                    }
+                } catch (err) {
+                    alert('解析文件失败，文件可能已损坏。');
+                }
+            };
+            reader.readAsText(file);
+        }
+    </script>
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./service-worker.js')
+                .then((registration) => {
+                    console.log('Service Worker 注册成功，作用域: ', registration.scope);
+                    
+                    // 每当检测到代码发生更新，自动提醒或后台静默刷新
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // 新版本已下载完毕，提示或直接自动重载
+                                console.log('发现新版本，正在应用更新...');
+                                window.location.reload();
+                            }
+                        });
+                    });
+                })
+                .catch((error) => {
+                    console.error('Service Worker 注册失败: ', error);
+                });
+        });
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "short_name": "家庭记账",
+  "name": "家庭收支记录系统",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#f8fafc",
+  "theme_color": "#10b981",
+  "display": "standalone",
+  "orientation": "portrait"
+}
